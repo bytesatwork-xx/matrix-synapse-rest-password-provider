@@ -22,13 +22,16 @@
 import logging
 from twisted.internet import defer
 import requests
+from synapse.types import UserID
+from synapse.module_api import ModuleApi
 import json
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('synapse.rest_auth_provider')
 
 class RestAuthProvider(object):
 
-    def __init__(self, config, account_handler):
+    def __init__(self, config, account_handler: ModuleApi):
+
         self.account_handler = account_handler
 
         if not config.endpoint:
@@ -43,6 +46,7 @@ class RestAuthProvider(object):
 
     @defer.inlineCallbacks
     def check_password(self, user_id, password):
+
         logger.info("Got password check for " + user_id)
         data = {'user':{'id':user_id, 'password':password}}
         r = requests.post(self.endpoint + '/_matrix-internal/identity/v1/check_credentials', json = data)
@@ -68,7 +72,8 @@ class RestAuthProvider(object):
             if localpart != localpart.lower() and self.regLower:
                 logger.info('User %s was cannot be created due to username lowercase policy', localpart)
                 defer.returnValue(False)
-            
+
+            # thie register method is deprecated, but there is no alternative in this context
             user_id, access_token = (yield self.account_handler.register(localpart=localpart))
             registration = True
             logger.info("Registration based on REST data was successful for %s", user_id)
@@ -83,7 +88,8 @@ class RestAuthProvider(object):
             if "display_name" in profile and ((registration and self.config.setNameOnRegister) or (self.config.setNameOnLogin)):
                 display_name = profile["display_name"]
                 logger.info("Setting display name to '%s' based on profile data", display_name)
-                yield store.set_profile_displayname(localpart, display_name)
+                user_id_obj = UserID.from_string(user_id)
+                yield store.set_profile_displayname(user_id_obj, display_name)
             else:
                 logger.info("Display name was not set because it was not given or policy restricted it")
             
@@ -147,14 +153,7 @@ class RestAuthProvider(object):
         rest_config = _RestConfig()
         rest_config.endpoint = config["endpoint"]
 
-        try:
-            rest_config.regLower = config['policy']['registration']['username']['enforceLowercase']
-        except TypeError:
-            # we don't care
-            pass
-        except KeyError:
-            # we don't care
-            pass
+        rest_config.regLower = True
 
         try:
             rest_config.setNameOnRegister = config['policy']['registration']['profile']['name']
